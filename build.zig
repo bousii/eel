@@ -46,4 +46,57 @@ pub fn build(b: *std.Build) !void {
 
     const run_step = b.step("run", "Run kernel with qemu");
     run_step.dependOn(&run_cmd.step);
+
+    // --- ISO + GRUB + QEMU/OVMF run step ---
+
+    const iso_dir = ".zig-cache/isodir";
+    const iso_path = "zig-out/eel.iso";
+    const cfg_path = "grub.cfg";
+
+    const mkdir_cmd = b.addSystemCommand(&[_][]const u8{
+        "mkdir", "-p", iso_dir ++ "/boot/grub",
+    });
+
+    const copy_kernel = b.addSystemCommand(&[_][]const u8{"cp"});
+    copy_kernel.addFileArg(kernel_path);
+    copy_kernel.addArg(iso_dir ++ "/boot/kernel.elf");
+    copy_kernel.step.dependOn(&mkdir_cmd.step);
+    copy_kernel.step.dependOn(b.getInstallStep());
+
+    const copy_cfg = b.addSystemCommand(&[_][]const u8{"cp"});
+    copy_cfg.addFileArg(b.path(cfg_path));
+    copy_cfg.addArg(iso_dir ++ "/boot/grub/grub.cfg");
+    copy_cfg.step.dependOn(&mkdir_cmd.step);
+
+    const mkrescue_cmd = b.addSystemCommand(&[_][]const u8{
+        "grub2-mkrescue", "-o", iso_path, iso_dir,
+    });
+    mkrescue_cmd.step.dependOn(&copy_kernel.step);
+    mkrescue_cmd.step.dependOn(&copy_cfg.step);
+
+    const copy_ovmf_vars = b.addSystemCommand(&[_][]const u8{
+        "cp", "-n", "/usr/share/OVMF/OVMF_VARS.fd", ".zig-cache/OVMF_VARS.fd",
+    });
+    copy_ovmf_vars.step.dependOn(&mkdir_cmd.step);
+
+    const qemu_iso_cmd = b.addSystemCommand(&[_][]const u8{
+        "qemu-system-x86_64",
+        "-m",
+        "1G",
+        "-serial",
+        "stdio",
+        "-drive",
+        "if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE.fd",
+        "-drive",
+        "if=pflash,format=raw,file=.zig-cache/OVMF_VARS.fd",
+        "-vga",
+        "std",
+        "-cdrom",
+        iso_path,
+    });
+    qemu_iso_cmd.step.dependOn(&mkrescue_cmd.step);
+    qemu_iso_cmd.step.dependOn(&copy_ovmf_vars.step);
+
+    const run_iso_step = b.step("run-iso", "Build a GRUB ISO and boot it via QEMU+OVMF (EFI)");
+    run_iso_step.dependOn(&qemu_iso_cmd.step);
 }
