@@ -33,6 +33,7 @@ pub fn build(b: *std.Build) !void {
         "-m", "1G",
         "-serial", "stdio",
     });
+
     // zig fmt: on
     qemu_cmd.addArg("-kernel");
     qemu_cmd.addFileArg(kernel_path);
@@ -44,7 +45,7 @@ pub fn build(b: *std.Build) !void {
         run_cmd.addArgs(args);
     }
 
-    const run_step = b.step("run", "Run kernel with qemu");
+    const run_step = b.step("run", "Run kernel directly with qemu");
     run_step.dependOn(&run_cmd.step);
 
     // --- ISO + GRUB + QEMU/OVMF run step ---
@@ -54,7 +55,7 @@ pub fn build(b: *std.Build) !void {
     const cfg_path = "grub.cfg";
 
     const mkdir_cmd = b.addSystemCommand(&[_][]const u8{
-        "mkdir", "-p", iso_dir ++ "/boot/grub",
+        "mkdir", "-p", iso_dir ++ "/boot/grub", "zig-out",
     });
 
     const copy_kernel = b.addSystemCommand(&[_][]const u8{"cp"});
@@ -73,6 +74,9 @@ pub fn build(b: *std.Build) !void {
     });
     mkrescue_cmd.step.dependOn(&copy_kernel.step);
     mkrescue_cmd.step.dependOn(&copy_cfg.step);
+
+    const iso_step = b.step("iso", "Build the bootable GRUB ISO image");
+    iso_step.dependOn(&mkrescue_cmd.step);
 
     const copy_ovmf_vars = b.addSystemCommand(&[_][]const u8{
         "cp", "-n", "/usr/share/OVMF/OVMF_VARS.fd", ".zig-cache/OVMF_VARS.fd",
